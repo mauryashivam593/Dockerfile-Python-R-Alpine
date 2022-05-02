@@ -1,0 +1,120 @@
+resource_types:
+- name: maven-resource
+  type: docker-image
+  source:
+    repository: nulldriver/maven-resource
+    tag: latest
+- name: email
+  type: docker-image
+  source:
+    repository: pcfseceng/email-resource
+
+resources:
+- name: ((application_name))-repo-dev
+  type: git
+  source:
+    uri: ((git-repo-url))
+    branch: develop
+    private_key: ((git-repo-private-key))
+
+  #The email server connection details we need to have Concourse send email
+- name: send_email
+  type: email
+  source:
+    smtp:
+      host: mailhost.cna.com
+      port: "25"
+      anonymous: true
+      skip_ssl_validation: true
+    from: concourse-pipeline@cna.com
+
+#Body of emails which get sent to users
+email_body: &email_body
+  body_text: |
+    Build Team Name: ${BUILD_TEAM_NAME}
+    Build Pipeline Name: ${BUILD_PIPELINE_NAME}
+    Build Job Name: ${BUILD_JOB_NAME}
+    Build URL: ${ATC_EXTERNAL_URL}/teams/${BUILD_TEAM_NAME}/pipelines/${BUILD_PIPELINE_NAME}/jobs/${BUILD_JOB_NAME}/builds/${BUILD_NAME}
+
+#This block (when called) will send out an email with a success message, specifically to the committer of the job
+email_on_success: &email_on_success
+  put: send_email
+  params:
+    subject_text: "SUCCESS: Build ${BUILD_ID} of ${BUILD_TEAM_NAME}.${BUILD_PIPELINE_NAME} is complete."
+    <<: *email_body
+    to: ((application_name))-repo-dev/.git/committer
+
+#This block (when called) will send out an email with a failure message, specifically to the committer of the job
+email_on_failure: &email_on_failure
+  put: send_email
+  params:
+    subject_text: "FAILURE: Build ${BUILD_ID} of ${BUILD_TEAM_NAME}.${BUILD_PIPELINE_NAME} has failed."
+    <<: *email_body
+    to: ((application_name))-repo-dev/.git/committer
+
+
+jobs:
+
+- name: ((application_name))-docker-build-base
+  plan:
+  - get: ((application_name))-repo-dev
+    trigger: true
+  - aggregate:  
+      - task: cut-build-base
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: google/cloud-sdk
+              tag: latest
+          params:
+            image_name: ((cut_textflag_build_image))
+            application_name: ((application_name))
+            application_repo: ((application_name))-repo-dev
+            gcp_project: ((gcp_project))
+            service_account: ((service_account))
+            config_file: ((config_file))
+            cloud_build_key: ((cloud_build_key))
+            cut_sacct_file_bq: ((cut_sacct_file_bq))
+                
+          inputs:
+          - name: ((application_name))-repo-dev
+          run:
+            path: /bin/bash 
+            args: ["((application_name))-repo-dev/ci/tasks/textflag-docker-build.sh"]
+            
+  on_failure: *email_on_failure
+
+- name: ((application_name))-cut-deploy
+  plan:
+  - get: ((application_name))-repo-dev
+    passed: [((application_name))-docker-build-base]
+    trigger: true
+        
+  - task: cut-textflag-deploy
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: google/cloud-sdk
+          tag: latest   
+      params:
+        image_name: ((cut_textflag_build_image))
+        application_name: ((application_name))
+        application_repo: ((application_name))-repo-dev
+        gcp_project: ((gcp_project))
+        gke_project: ((gke_project))        
+        gke_cluster: ((gke_cluster))
+        gke_namespace: ((gke_namespace))
+        service_account: ((service_account))
+        cloud_build_key: ((cloud_build_key))
+      inputs:
+      - name: ((application_name))-repo-dev
+      run:
+        path: /bin/bash
+        args: ["((application_name))-repo-dev/ci/tasks/textflag-deploy.sh"]
+     
+  on_failure: *email_on_failure
+  on_success: *email_on_success

@@ -1,0 +1,19 @@
+FROM artemklevtsov/r-alpine
+RUN R --version
+RUN cat /etc/os-release
+RUN apk update
+RUN apk add postgresql-dev libressl-dev mariadb-dev mariadb-client
+RUN Rscript -e 'install.packages("data.table")'
+RUN Rscript -e 'install.packages("stringr")'
+RUN Rscript -e 'install.packages("Rcpp")'
+RUN Rscript -e 'install.packages("DBI")'
+Rscript -e 'install.packages("magrittr")' 
+RUN Rscript -e 'install.packages("RPostgreSQL")'
+RUN Rscript -e 'install.packages("httr")'
+RUN Rscript -e 'install.packages("rjson")'
+RUN Rscript -e 'install.packages("promote")'
+RUN Rscript -e 'install.packages("googleAuthR")'
+RUN apk del tiff tiff-dev
+RUN apk del libjpeg-turbo libjpeg-turbo-dev
+RUN apk del libpng libpng-dev
+#Rscript -e 'install.packages("./agl.score",repos=NULL)'

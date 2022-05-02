@@ -1,0 +1,38 @@
+FROM python:3.7.10-alpine3.13
+# HTTP proxy settings
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+RUN apk update && apk upgrade && \
+    apk add --virtual build-deps build-base boost-dev autoconf libressl-dev zlib-dev flex bison gcc python3-dev libffi-dev musl-dev git g++ rust cmake make
+    
+RUN git clone https://github.com/apache/arrow.git
+RUN pip install --no-cache-dir six pytest numpy cython
+RUN pip install --no-cache-dir pandas==1.1.5
+ARG ARROW_VERSION=3.0.0
+ARG ARROW_SHA1=c1fed962cddfab1966a0e03461376ebb28cf17d3
+RUN mkdir /arrow/cpp/build    
+WORKDIR /arrow/cpp/build
+ENV ARROW_BUILD_TYPE=release
+ENV ARROW_HOME=/usr/local
+ENV PARQUET_HOME=/usr/local
+#disable backtrace
+RUN sed -i -e '/_EXECINFO_H/,/endif/d' -e '/execinfo/d' ../src/arrow/util/logging.cc
+RUN cmake -DCMAKE_BUILD_TYPE=$ARROW_BUILD_TYPE \
+          -DCMAKE_INSTALL_LIBDIR=lib \
+          -DCMAKE_INSTALL_PREFIX=$ARROW_HOME \
+          -DARROW_PARQUET=on \
+          -DARROW_PYTHON=on \
+          -DARROW_PLASMA=on \
+          -DARROW_BUILD_TESTS=OFF \
+          ..
+RUN make -j$(nproc)
+RUN make install
+WORKDIR /arrow/python
+RUN /usr/local/bin/python setup.py build_ext --build-type=$ARROW_BUILD_TYPE \
+      --with-parquet --inplace
+RUN /usr/local/bin/python setup.py install
+WORKDIR /
+# Install modules
+COPY requirements.txt /tmp/
+RUN pip list
+RUN pip install -U -r /tmp/requirements.txt

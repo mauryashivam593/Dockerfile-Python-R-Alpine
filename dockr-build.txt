@@ -1,0 +1,39 @@
+#!/bin/bash
+
+set -e
+
+image_tag=gcr.io/${gcp_project}/${image_name}
+echo ${cloud_build_key} > /tmp/key.json
+gcloud auth activate-service-account ${service_account} --key-file=/tmp/key.json --project=${gcp_project} 
+
+echo ${cut_sacct_file_bq} > sacct_file_bigquery.json
+#echo ${ete_sacct_file_bq} > ete_sacct_file_bigquery.json
+cp sacct_file_bigquery.json ${application_repo}/ci/docker-build/sacct_file_bigquery.json
+sleep 5
+
+cp ${application_repo}/Python/etfl_run_process-dev.py ${application_repo}/ci/docker-build
+sleep 5
+cp -r ${application_repo}/ci/tasks/config-files/*.json ${application_repo}/ci/docker-build
+sleep 5
+cp  ${application_repo}/ci/tasks/PubSub/batch_subscription.py ${application_repo}/ci/docker-build
+git init
+git config --global  http.sslVerify false
+git clone --branch develop https://enterprise-textflag-package-deploy-token:hPuiaZB-e8SJ5s9ByhkV@gitlab.gcp.cna.com/etfl/dev/enterprise-text-flag-library-packages.git
+
+cp enterprise-text-flag-library-packages/etfl_cna-0.7.1-py3-none-any.whl ${application_repo}/ci/docker-build
+cp enterprise-text-flag-library-packages/textflag_cna-0.6.0.tar.gz ${application_repo}/ci/docker-build/
+
+echo "ETFL Package Copied"
+sleep 5
+echo '########'
+echo ${image_tag}
+echo '########'
+
+gcloud builds submit ${application_repo}/ci/docker-build/. --tag ${image_tag} --gcs-log-dir=gs://${gcp_project}_cloudbuild/logs --timeout=900s
+
+sleep 5
+
+echo 'COMPLETED gcloud builds submit'
+echo 'creating container image tag'
+gcloud --quiet beta container images add-tag ${image_tag} gcr.io/${gcp_project}/${image_name}:latest
+sleep 5

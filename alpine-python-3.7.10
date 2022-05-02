@@ -1,0 +1,56 @@
+FROM python:3.7.10-alpine3.13
+# HTTP proxy settings
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+RUN apk update && apk upgrade && \
+    apk add --virtual build-deps build-base boost-dev autoconf libressl-dev zlib-dev flex bison gcc python3-dev libffi-dev musl-dev git g++ rust cmake make
+    
+RUN git clone https://github.com/apache/arrow.git
+RUN pip install --no-cache-dir six pytest numpy cython
+RUN mkdir /arrow/cpp/build    
+WORKDIR /arrow/cpp/build
+ENV ARROW_BUILD_TYPE=release
+ENV ARROW_HOME=/usr/local
+ENV PARQUET_HOME=/usr/local
+#disable backtrace
+RUN sed -i -e '/_EXECINFO_H/,/endif/d' -e '/execinfo/d' ../src/arrow/util/logging.cc
+RUN cmake -DCMAKE_BUILD_TYPE=$ARROW_BUILD_TYPE \
+          -DCMAKE_INSTALL_LIBDIR=lib \
+          -DCMAKE_INSTALL_PREFIX=$ARROW_HOME \
+          -DARROW_PARQUET=on \
+          -DARROW_PYTHON=on \
+          -DARROW_PLASMA=on \
+          -DARROW_BUILD_TESTS=OFF \
+          ..
+RUN make -j$(nproc)
+RUN make install
+WORKDIR /arrow/python
+RUN /usr/local/bin/python setup.py build_ext --build-type=$ARROW_BUILD_TYPE \
+      --with-parquet --inplace
+RUN /usr/local/bin/python setup.py install
+WORKDIR /
+# Install modules
+COPY requirements.txt /tmp/
+RUN pip install -U -r /tmp/requirements.txt
+
+====================================================
+requirements.txt
+dash==1.20.0
+dash-bootstrap-components==0.11.1
+dash-editor-components==0.0.2
+pandas_gbq==0.14.0
+xlrd==1.2.0
+flask_oidc==1.4.0
+okta==0.0.4
+pandas==1.0.4
+numpy==1.18.1
+Flask==1.1.2
+gunicorn==20.0.4
+cryptography==3.2.0
+google-oauth==1.0.1
+google-cloud-storage==1.26.0
+google-cloud-bigquery==1.24.0
+google-auth==1.16.0
+flask-talisman==0.7.0
+Flask-Caching==1.10.0
+dash-extensions==0.0.53
